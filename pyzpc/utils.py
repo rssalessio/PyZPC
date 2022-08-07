@@ -9,13 +9,12 @@ class OptimizationProblemVariables(NamedTuple):
     Class used to store all the variables used in the optimization
     problem
     """
-    u_ini: Union[Variable, Parameter]
-    y_ini: Union[Variable, Parameter]
-    u: Union[Variable, Parameter]
-    y: Union[Variable, Parameter]
-    g: Union[Variable, Parameter]
-    sigma_y: Union[Variable, Parameter]
-
+    y0: Parameter
+    u: Variable
+    y: Variable
+    s_l: Variable
+    s_u: Variable
+    beta_u: Variable
 
 class OptimizationProblem(NamedTuple):
     """
@@ -60,9 +59,13 @@ class SystemZonotopes(NamedTuple):
     :param W: process noise zonotope
     :param V: measurement noise zonotope
     :param Av: Onestep propagation zonotope
+    :param U: Input zonotope
+    :param Y: Output zonotope
     """
     X0: Zonotope
     W: Zonotope
     V: Zonotope
     Av: Zonotope
+    U: Zonotope
+    Y: Zonotope
 
