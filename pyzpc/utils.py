@@ -56,16 +56,17 @@ class SystemZonotopes(NamedTuple):
     Tuple that contains the zonotopes of the system
 
     :param X0: initial condition zonotope
+    :param U: Input zonotope
+    :param Y: Output zonotope
     :param W: process noise zonotope
     :param V: measurement noise zonotope
     :param Av: Onestep propagation zonotope
-    :param U: Input zonotope
-    :param Y: Output zonotope
     """
     X0: Zonotope
+    U: Zonotope
+    Y: Zonotope
     W: Zonotope
     V: Zonotope
     Av: Zonotope
-    U: Zonotope
-    Y: Zonotope
+    
 

@@ -8,6 +8,7 @@ from pydatadrivenreachability import (
     concatenate_zonotope,
     compute_IO_LTI_matrix_zonotope,
     MatrixZonotope,
+    Zonotope,
     CVXZonotope)
 
 from pyzpc.utils import (
@@ -16,6 +17,9 @@ from pyzpc.utils import (
     SystemZonotopes,
     OptimizationProblem,
     OptimizationProblemVariables)
+import sys
+#sys.setrecursionlimit(10000)
+
 
 class ZPC(object):
     optimization_problem: Union[OptimizationProblem,None] = None
@@ -31,12 +35,12 @@ class ZPC(object):
         :param data:                A tuple of input/output data. Data should have shape TxM
                                     where T is the batch size and M is the number of features
         """
-        self.update_data(data)
+        self.update_identification_data(data)
     
     @property
     def num_samples(self) -> int:
         """ Return the number of samples used to estimate the Matrix Zonotope Msigma """
-        return self.dataset.Um.shape[0]
+        return self.dataset.Um.shape[0] + 1
 
     @property
     def dim_u(self) -> int:
@@ -62,12 +66,10 @@ class ZPC(object):
             "Data needs to be shaped as a TxM matrix (T is the number of samples and M is the number of features)"
         assert data.y.shape[0] == data.u.shape[0], \
             "Input/output data must have the same length"
-        
-        T, dim_y = data.y.shape
-        T, dim_u = data.u.shape
-        Ym = np.reshape(data.y[:-1] ((T - 1), dim_y))
-        Yp = np.reshape(data.y[1:], (T-1, dim_y))
-        Um = np.reshape(data.u[:-1], (T-1, dim_u))
+
+        Ym = data.y[:-1]
+        Yp = data.y[1:]
+        Um = data.u[:-1]
         self.dataset = DataDrivenDataset(Yp, Ym, Um)
         self.optimization_problem = None
 
@@ -118,35 +120,174 @@ class ZPC(object):
         y = cp.Variable(shape=(horizon, self.dim_y))
         s_l = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
         s_u = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
+        s = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
+        beta_u = cp.Variable(shape=(horizon, self.zonotopes.U.num_generators))
+
+        RL = cp.Variable(shape=(horizon, self.dim_y))
+        RR = cp.Variable(shape=(horizon, self.dim_y))
+
+        
+        R = [CVXZonotope(y0, np.zeros((self.dim_y, 1)))]
+        U = [CVXZonotope(u[i, :], np.zeros((self.dim_u, 1))) for i in range(horizon)]
+        Z = self.zonotopes.W + self.zonotopes.V + (-1 *self.zonotopes.Av)
+    
+        
+        
+        leftY = self.zonotopes.Y.interval.left_limit
+        rightY = self.zonotopes.Y.interval.right_limit
+
+        constraints = [
+            # y >= np.array([leftY.flatten()] * horizon),
+            # y <= np.array([rightY.flatten()] * horizon),
+            y - s_l >= np.array([leftY.flatten()] * horizon),
+            y + s_u <= np.array([rightY.flatten()] * horizon),
+            beta_u >= -1.,
+            beta_u <= 1.,
+            u == np.array([self.zonotopes.U.center] * horizon) + (beta_u @ self.zonotopes.U.generators.T),
+        ]
+        betas = []
+        for i in range(horizon):
+            Rnew: CVXZonotope = self.Msigma * (R[i].cartesian_product(U[i])) + Z
+            R.append(Rnew)
+            
+            # beta_y_u = cp.Variable(shape=(Rnew.num_generators))
+            # beta_y_l = cp.Variable(shape=(Rnew.num_generators))
+
+            # betas.append(beta_y_u)
+            # betas.append(beta_y_l)
+            
+            leftR = Rnew.interval.left_limit # Rnew.center - cp.sum(cp.abs(Rnew.generators), axis=1)
+            rightR = Rnew.interval.right_limit #Rnew.center + cp.sum(cp.abs(Rnew.generators), axis=1) #Rnew.interval.right_limit
+
+            # import pdb
+            # pdb.set_trace()
+            constraints.extend([
+                #y[i] + s[i] == Rnew.center,
+                leftR >= y[i]- s_l[i],
+                rightR <= y[i] + s_l[i],
+                #y[i] - s_l[i] ==  Rnew.center + Rnew.generators @ beta_y_l,
+                #y[i] + s_u[i] ==  Rnew.center + Rnew.generators @ beta_y_u,
+                # beta_y_u >= -1.,
+                # beta_y_u <= 1.,
+                # beta_y_l >= -1.,
+                # beta_y_l <= 1
+            ])
+
+        _constraints = build_constraints(u, y) if build_constraints is not None else (None, None)
+
+        for idx, constraint in enumerate(_constraints):
+            if constraint is None or not isinstance(constraint, Constraint) or not constraint.is_dcp():
+                raise Exception(f'Constraint {idx} is not defined or is not convex.')
+
+        constraints.extend([] if _constraints is None else _constraints)
+
+        # Build loss
+        _loss = build_loss(u, y)
+        
+        if _loss is None or not isinstance(_loss, Expression) or not _loss.is_dcp():
+            raise Exception('Loss function is not defined or is not convex!')
+
+        _regularizers =  0
+        problem_loss = _loss + _regularizers
+
+        # Solve problem
+        objective = cp.Minimize(problem_loss)
+
+        try:
+            problem = cp.Problem(objective, constraints)
+        except cp.SolverError as e:
+            raise Exception(f'Error while constructing the DeePC problem. Details: {e}')
+
+        self.optimization_problem = OptimizationProblem(
+            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, s_l=s_l, s_u=s_u, beta_u=beta_u),
+            constraints = constraints,
+            objective_function = problem_loss,
+            problem = problem
+        )
+
+        return self.optimization_problem
+
+    def build_problem2(self,
+            y0: np.ndarray,
+            zonotopes: SystemZonotopes,
+            horizon: int,
+            build_loss: Callable[[cp.Variable, cp.Variable], Expression],
+            build_constraints: Optional[Callable[[cp.Variable, cp.Variable], Optional[List[Constraint]]]] = None) -> OptimizationProblem:
+        """
+        Builds the ZPC optimization problem
+        For more info check section 3.2 in https://arxiv.org/pdf/2103.14110.pdf
+
+        :param zonotopes:           System zonotopes
+        :param horizon:             Horizon length
+        :param build_loss:          Callback function that takes as input an (input,output) tuple of data
+                                    of shape (TxM), where T is the horizon length and M is the feature size
+                                    The callback should return a scalar value of type Expression
+        :param build_constraints:   Callback function that takes as input an (input,output) tuple of data
+                                    of shape (TxM), where T is the horizon length and M is the feature size
+                                    The callback should return a list of constraints.
+        :return:                    Parameters of the optimization problem
+        """
+        assert build_loss is not None, "Loss function callback cannot be none"
+
+        self.optimization_problem = None
+        self._build_zonotopes(zonotopes)
+
+        # Build variables
+        #y0 = cp.Parameter(shape=(self.dim_y))
+        u = cp.Variable(shape=(horizon, self.dim_u))
+        y = cp.Variable(shape=(horizon, self.dim_y))
+        s_l = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
+        s_u = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
         beta_u = cp.Variable(shape=(horizon, self.zonotopes.U.num_generators))
 
         
-        R = [CVXZonotope(y0, np.zeros(self.dim_y, 1))]
-        U = [CVXZonotope(u[i], np.zeros(self.dim_u)) for i in range(horizon)]
+        U = [CVXZonotope(u[i, :], np.zeros((self.dim_u, 1))) for i in range(horizon)]
         Z = self.zonotopes.W + self.zonotopes.V + (-1 *self.zonotopes.Av)
-
+    
         leftY = self.zonotopes.Y.interval.left_limit
         rightY = self.zonotopes.Y.interval.right_limit
 
         constraints = [
             y - s_l >= np.array([leftY.flatten()] * horizon),
-            y + s_u <= np.array([leftY.flatten()] * horizon),
+            y + s_u <= np.array([rightY.flatten()] * horizon),
             beta_u >= -1.,
             beta_u <= 1.,
-            u == np.array([self.zonotopes.U.center] * horizon) + (self.zonotopes.U.generators @ beta_u).T,
+            u == np.array([self.zonotopes.U.center] * horizon) + (beta_u @ self.zonotopes.U.generators.T),
         ]
 
-        for i in range(horizon):
-            Rnew: CVXZonotope = self.Msigma * (R[i].cartesian_product(U[i])) + Z
-            R.append(Rnew)
+        num_trajectories = 50
+        R = []
+        for i in range(num_trajectories):
+            R.append([Zonotope(y0, np.zeros((self.dim_y, 1)))])
 
-            leftR = Rnew.interval.left_limit
-            rightR = Rnew.interval.left_limit
+        Rhat = [Zonotope(y0, np.zeros((self.dim_y, 1)))]
+        Usampled = self.zonotopes.U.sample(num_trajectories * horizon).reshape((num_trajectories, horizon, self.dim_u))
+
+        for i in range(horizon):
+            print(i)
+            Ravg = None
+            for k in range(num_trajectories):
+                Zu = Zonotope(Usampled[k,i], np.zeros((self.dim_u, 1)))
+                R_ki = self.Msigma.over_approximate() * (R[k][i].cartesian_product(Zu)) + Z
+                R[k].append(R_ki.reduce(50))
+                Ravg =   Ravg + R_ki if Ravg is not None else R_ki
+                Ravg.reduce(50)
+                Ravg = Ravg.over_approximate()
+            #Ravg = Zonotope(Ravg.center * (1/num_trajectories), Ravg.generators)
+            
+            Rhat.append(Ravg)
+
+        for i in range(horizon):
+            Rnew: CVXZonotope = self.Msigma * (U[i].cartesian_product(Rhat[i])) + Z
+
+            leftR = Rnew.interval.left_limit # Rnew.center - cp.sum(cp.abs(Rnew.generators), axis=1)
+            rightR = Rnew.interval.right_limit #Rnew.center + cp.sum(cp.abs(Rnew.generators), axis=1) #Rnew.interval.right_limit
 
             constraints.extend([
-                y[i] - s_l[i] == leftR,
-                y[i] + s_u[i] == rightR,
+                leftR >= y[i]- s_l[i],
+                rightR <= y[i] + s_l[i],
             ])
+
 
         _constraints = build_constraints(u, y) if build_constraints is not None else (None, None)
 
@@ -203,11 +344,14 @@ class ZPC(object):
         assert self.optimization_problem is not None, "Problem was not built"
 
 
-        self.optimization_problem.variables.y0.value = y0
-
+        #self.optimization_problem.variables.y0.value = y0
         try:
+            #import pdb
+            #pdb.set_trace()
             result = self.optimization_problem.problem.solve(**cvxpy_kwargs)
         except cp.SolverError as e:
+            with open('zpc_logs.txt', 'w') as f:
+                print(f'Error while solving the DeePC problem. Details: {e}', file=f)
             raise Exception(f'Error while solving the DeePC problem. Details: {e}')
 
         if np.isinf(result):
