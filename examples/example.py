@@ -14,9 +14,14 @@ from pydatadrivenreachability import Zonotope
 # Define the loss function
 def loss_callback(u: cp.Variable, y: cp.Variable) -> Expression:
     horizon, M, P = u.shape[0], u.shape[1], y.shape[1]
-    ref = 1
+    ref = np.array([[1,0,0,0]]*horizon)
+    # import pdb
+    # pdb.set_trace()
     # Sum_t ||y_t - r_t||^2
-    return cp.sum(cp.norm(y - ref, p=2, axis=1))
+    cost = 0
+    for i in range(horizon):
+        cost += cp.norm(y[i,0] - 1)
+    return cost # 100*cp.sum(cp.norm(y - ref, p=2, axis=1))
 
 # Define additional constraints
 def constraints_callback(u: cp.Variable, y: cp.Variable) -> List[Constraint]:
@@ -41,17 +46,17 @@ dim_x, dim_u = sys.B.shape
 
 
 # Define zonotopes and generate data
-X0 = Zonotope([0] * dim_x, 0.5 * np.diag([1] * dim_x))
-U = Zonotope([0] * dim_u,  4 * np.diag([1] * dim_u))
+X0 = Zonotope([0] * dim_x, 0. * np.diag([1] * dim_x))
+U = Zonotope([1] * dim_u,  2 * np.diag([1] * dim_u))
 W = Zonotope([0] * dim_x, 0.005 * np.ones((dim_x, 1)))
 V = Zonotope([0] * dim_x, 0.002 * np.ones((dim_x, 1)))
-Y = Zonotope([0] * dim_x, 3 * np.ones((dim_x, 1)))
+Y = Zonotope([0] * dim_x, 2 * np.ones((dim_x, 1)))
 AV = V * sys.A
 zonotopes = SystemZonotopes(X0, U, Y, W, V, AV)
 
-num_trajectories = 2
-num_steps_per_trajectory = 50
-horizon = 2
+num_trajectories = 5
+num_steps_per_trajectory = 100
+horizon = 5
 
 data = generate_trajectories(sys, X0, U, W, V, num_trajectories, num_steps_per_trajectory)
 
@@ -62,12 +67,12 @@ x = X0.sample().flatten()
 
 
 trajectory = [x]
-
+problem = zpc.build_problem2(zonotopes, horizon, loss_callback, constraints_callback)
 for n in range(100):
     print(f'Step {n}')
     #import pdb
     #pdb.set_trace()
-    problem = zpc.build_problem2(x, zonotopes, horizon, loss_callback, constraints_callback)
+    
     result, info = zpc.solve(x, verbose=True,warm_start=True)
     u = info['u_optimal']
     z = sys.A @ x +  np.squeeze(sys.B *u[0]) + W.sample()

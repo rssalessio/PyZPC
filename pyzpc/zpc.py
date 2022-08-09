@@ -146,8 +146,14 @@ class ZPC(object):
             u == np.array([self.zonotopes.U.center] * horizon) + (beta_u @ self.zonotopes.U.generators.T),
         ]
         betas = []
+        sys = self.Msigma.sample()[0]
         for i in range(horizon):
-            Rnew: CVXZonotope = self.Msigma * (R[i].cartesian_product(U[i])) + Z
+            print(f'Building for step {i}')
+            # card_cen = cp.hstack([R[i].center, U[i].center])
+            # card_gen = cp.vstack([R[i].generators, np.zeros((U[i].dimension, R[i].num_generators))])
+            # card_zono = CVXZonotope(card_cen, card_gen)
+
+            Rnew: CVXZonotope = (R[i].cartesian_product(U[i]) *  sys) + Z.sample()[0]
             R.append(Rnew)
             
             # beta_y_u = cp.Variable(shape=(Rnew.num_generators))
@@ -208,7 +214,6 @@ class ZPC(object):
         return self.optimization_problem
 
     def build_problem2(self,
-            y0: np.ndarray,
             zonotopes: SystemZonotopes,
             horizon: int,
             build_loss: Callable[[cp.Variable, cp.Variable], Expression],
@@ -233,7 +238,7 @@ class ZPC(object):
         self._build_zonotopes(zonotopes)
 
         # Build variables
-        #y0 = cp.Parameter(shape=(self.dim_y))
+        y0 = cp.Parameter(shape=(self.dim_y))
         u = cp.Variable(shape=(horizon, self.dim_u))
         y = cp.Variable(shape=(horizon, self.dim_y))
         s_l = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
@@ -250,43 +255,70 @@ class ZPC(object):
         constraints = [
             y - s_l >= np.array([leftY.flatten()] * horizon),
             y + s_u <= np.array([rightY.flatten()] * horizon),
-            beta_u >= -1.,
-            beta_u <= 1.,
-            u == np.array([self.zonotopes.U.center] * horizon) + (beta_u @ self.zonotopes.U.generators.T),
+            #beta_u >= -1.,
+            #beta_u <= 1.,
+            u >= np.array([self.zonotopes.U.interval.left_limit.flatten()] * horizon),
+            u <= np.array([self.zonotopes.U.interval.right_limit.flatten()] * horizon)
+            #u == np.array([self.zonotopes.U.center] * horizon) + (beta_u @ self.zonotopes.U.generators.T),
         ]
 
-        num_trajectories = 50
-        R = []
+        num_trajectories = 1
+        R: List[List[CVXZonotope]] = []
         for i in range(num_trajectories):
-            R.append([Zonotope(y0, np.zeros((self.dim_y, 1)))])
+            R.append([CVXZonotope(y0, np.zeros((self.dim_y, 1)))])
 
-        Rhat = [Zonotope(y0, np.zeros((self.dim_y, 1)))]
-        Usampled = self.zonotopes.U.sample(num_trajectories * horizon).reshape((num_trajectories, horizon, self.dim_u))
+        #Rhat = [Zonotope(y0, np.zeros((self.dim_y, 1)))]
+        #Usampled = self.zonotopes.U.sample(num_trajectories * horizon).reshape((num_trajectories, horizon, self.dim_u))
 
-        for i in range(horizon):
-            print(i)
-            Ravg = None
-            for k in range(num_trajectories):
-                Zu = Zonotope(Usampled[k,i], np.zeros((self.dim_u, 1)))
-                R_ki = self.Msigma.over_approximate() * (R[k][i].cartesian_product(Zu)) + Z
-                R[k].append(R_ki.reduce(50))
-                Ravg =   Ravg + R_ki if Ravg is not None else R_ki
-                Ravg.reduce(50)
-                Ravg = Ravg.over_approximate()
+        for k in range(num_trajectories):
+            sys_sample: np.ndarray = self.Msigma.sample()[0]
+            print(k)
+            for i in range(horizon):
+                print(f'{k}-{i}')
+                card_cen = cp.hstack([R[k][i].center, U[i].center])
+                card_gen = cp.vstack([R[k][i].generators, np.zeros((U[i].dimension, R[k][i].num_generators))])
+                card_zono = CVXZonotope(card_cen, card_gen)
+                R_ki: CVXZonotope = ((R[k][i].cartesian_product(U[i])) * sys_sample) + Z.sample()[0]
+                #R_ki: CVXZonotope = (card_zono * sys_sample) + Z.sample()[0]
+                #R_ki: CVXZonotope = (card_zono * sys_sample) + Z #.sample()[0]
+                R[k].append(R_ki)
+
+                leftR = R_ki.interval.left_limit # Rnew.center - cp.sum(cp.abs(Rnew.generators), axis=1)
+                rightR = R_ki.interval.right_limit #Rnew.center + cp.sum(cp.abs(Rnew.generators), axis=1) #Rnew.interval.right_limit
+
+                constraints.extend([
+                    leftR >= y[i]- s_l[i],
+                    rightR <= y[i] + s_l[i],
+                ])
+
+
+        # for i in range(horizon):
+        #     print(i)
+        #     import pdb
+        #     pdb.set_trace()
+        #     Ravg = None
+        #     sys_sample = self.Msigma.sample()[0]
+        #     for k in range(num_trajectories):
+        #         Zu = Zonotope(Usampled[k,i], np.zeros((self.dim_u, 1)))
+        #         R_ki = sys_sample * (R[k][i].cartesian_product(Zu)) + Z
+        #         R[k].append(R_ki.reduce(50))
+        #         Ravg =   Ravg + R_ki if Ravg is not None else R_ki
+        #         Ravg.reduce(50)
+        #         Ravg = Ravg.over_approximate()
             #Ravg = Zonotope(Ravg.center * (1/num_trajectories), Ravg.generators)
             
-            Rhat.append(Ravg)
+            #Rhat.append(Ravg)
 
-        for i in range(horizon):
-            Rnew: CVXZonotope = self.Msigma * (U[i].cartesian_product(Rhat[i])) + Z
+        # for i in range(horizon):
+        #     Rnew: CVXZonotope = self.Msigma * (U[i].cartesian_product(Rhat[i])) + Z
 
-            leftR = Rnew.interval.left_limit # Rnew.center - cp.sum(cp.abs(Rnew.generators), axis=1)
-            rightR = Rnew.interval.right_limit #Rnew.center + cp.sum(cp.abs(Rnew.generators), axis=1) #Rnew.interval.right_limit
+        #     leftR = Rnew.interval.left_limit # Rnew.center - cp.sum(cp.abs(Rnew.generators), axis=1)
+        #     rightR = Rnew.interval.right_limit #Rnew.center + cp.sum(cp.abs(Rnew.generators), axis=1) #Rnew.interval.right_limit
 
-            constraints.extend([
-                leftR >= y[i]- s_l[i],
-                rightR <= y[i] + s_l[i],
-            ])
+        #     constraints.extend([
+        #         leftR >= y[i]- s_l[i],
+        #         rightR <= y[i] + s_l[i],
+        #     ])
 
 
         _constraints = build_constraints(u, y) if build_constraints is not None else (None, None)
@@ -344,7 +376,7 @@ class ZPC(object):
         assert self.optimization_problem is not None, "Problem was not built"
 
 
-        #self.optimization_problem.variables.y0.value = y0
+        self.optimization_problem.variables.y0.value = y0
         try:
             #import pdb
             #pdb.set_trace()
