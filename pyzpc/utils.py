@@ -12,8 +12,7 @@ class OptimizationProblemVariables(NamedTuple):
     y0: Parameter
     u: Variable
     y: Variable
-    s_l: Variable
-    s_u: Variable
+    s: Variable
     beta_u: Variable
 
 class OptimizationProblem(NamedTuple):

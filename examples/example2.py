@@ -19,7 +19,7 @@ def loss_callback(u: cp.Variable, y: cp.Variable) -> Expression:
     # Sum_t ||y_t - r_t||^2
     cost = 0
     for i in range(1, horizon):
-        cost += 100*cp.norm(y[i,0] - 1)
+        cost += 100*cp.norm(y[i,1] - 1)
     return  cost
 
 # Define additional constraints
@@ -29,35 +29,36 @@ def constraints_callback(u: cp.Variable, y: cp.Variable) -> List[Constraint]:
     return []
 
 
-# Plant
-# In this example we consider the three-pulley 
-# system analyzed in the original VRFT paper:
-# 
-# "Virtual reference feedback tuning: 
-#      a direct method for the design offeedback controllers"
-# -- Campi et al. 2003
+A = np.array(
+    [[-1, -4, 0, 0, 0],
+     [4, -1, 0, 0, 0],
+     [0, 0, -3, 1, 0],
+     [0, 0, -1, -3, 0],
+     [0, 0, 0, 0, -2]])
+B = np.ones((5, 1))
+C = np.array([1, 0, 0, 0, 0])
+D = np.array([0])
 
+dim_x = A.shape[0]
+dim_u = 1
 dt = 0.05
-num = [0.28261, 0.50666]
-den = [1, -1.41833, 1.58939, -1.31608, 0.88642]
-sys = scipysig.TransferFunction(num, den, dt=dt).to_ss()
-dim_x, dim_u = sys.B.shape
+A,B,C,D,_ = scipysig.cont2discrete(system=(A,B,C,D), dt = dt)
 
 
 # Define zonotopes and generate data
-X0 = Zonotope([0] * dim_x, 0. * np.diag([1] * dim_x))
-U = Zonotope([1] * dim_u, 3 * np.diag([1] * dim_u))
+X0 = Zonotope([0] * dim_x, 1 * np.diag([1] * dim_x))
+U = Zonotope([1] * dim_u,  10 * np.diag([1] * dim_u))
 W = Zonotope([0] * dim_x, 0.005 * np.ones((dim_x, 1)))
 V = Zonotope([0] * dim_x, 0.002 * np.ones((dim_x, 1)))
-Y = Zonotope([1] * dim_x, np.diag(2*np.ones(dim_x)))
-AV = V * sys.A
+Y = Zonotope([1] * dim_x, 15*np.diag(np.ones(dim_x)))
+AV = V * A
 zonotopes = SystemZonotopes(X0, U, Y, W, V, AV)
 
 num_trajectories = 5
 num_steps_per_trajectory = 200
 horizon = 3
 
-data = generate_trajectories(sys, X0, U, W, V, num_trajectories, num_steps_per_trajectory)
+data = generate_trajectories(scipysig.StateSpace(A,B,C,D), X0, U, W, V, num_trajectories, num_steps_per_trajectory)
 
 # Build DPC
 zpc = ZPC(data)
@@ -71,7 +72,7 @@ for n in range(100):
 
     result, info = zpc.solve(x, verbose=True,warm_start=True)
     u = info['u_optimal']
-    z = sys.A @ x +  np.squeeze(sys.B *u[0]) + W.sample()
+    z = A @ x +  np.squeeze(B *u[0]) + W.sample()
 
     # We assume C = I
     x = (z + V.sample()).flatten()
