@@ -96,7 +96,8 @@ class ZPC(object):
             horizon: int,
             build_loss: Callable[[cp.Variable, cp.Variable], Expression],
             build_constraints: Optional[Callable[[cp.Variable, cp.Variable], Optional[List[Constraint]]]] = None,
-            regularizer: float = 1e-1) -> OptimizationProblem:
+            regularizer: float = 1e-1,
+            Msigma_regularizer: float = 0.1) -> OptimizationProblem:
         """
         Builds the ZPC optimization problem
         For more info check section 3.2 in https://arxiv.org/pdf/2103.14110.pdf
@@ -139,10 +140,13 @@ class ZPC(object):
             u == np.array([self.zonotopes.U.center] * horizon) + (beta_u @ self.zonotopes.U.generators.T),
         ]
 
+        Msigma = self.Msigma.reduce(int(self.Msigma.order * Msigma_regularizer))
+        print(f'Regularized MSigma: old order {self.Msigma.order} - new order {Msigma.order}')
+
         for i in range(horizon):
             print(f'Building for step {i}')
             XU = R[i].cartesian_product(U[i])
-            Rnew: CVXZonotope = (XU * self.Msigma.center) + Z
+            Rnew: CVXZonotope = (XU * Msigma.center) + Z
 
             R.append(Rnew)
     
@@ -169,7 +173,7 @@ class ZPC(object):
         if _loss is None or not isinstance(_loss, Expression) or not _loss.is_dcp():
             raise Exception('Loss function is not defined or is not convex!')
 
-        _regularizers = regularizer * cp.sum(cp.abs(s))
+        _regularizers = regularizer * cp.norm(s, p=1)
         problem_loss = _loss + _regularizers
 
         # Solve problem
