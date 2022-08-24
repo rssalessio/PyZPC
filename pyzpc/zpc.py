@@ -140,7 +140,7 @@ class ZPC(object):
             u == np.array([self.zonotopes.U.center] * horizon) + (beta_u @ self.zonotopes.U.generators.T),
         ]
 
-        Msigma = self.Msigma.reduce(int(self.Msigma.order * Msigma_regularizer))
+        Msigma = self.Msigma.reduce(max(1, int(self.Msigma.order * Msigma_regularizer)))
         print(f'Regularized MSigma: old order {self.Msigma.order} - new order {Msigma.order}')
 
         for i in range(horizon):
