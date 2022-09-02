@@ -9,7 +9,7 @@ from cvxpy.expressions.expression import Expression
 from cvxpy.constraints.constraint import Constraint
 from pyzpc import ZPC, Data, SystemZonotopes
 from utils import generate_trajectories
-from pydatadrivenreachability import Zonotope
+from pyzonotope import Zonotope
 
 # Define the loss function
 def loss_callback(u: cp.Variable, y: cp.Variable) -> Expression:

@@ -9,24 +9,8 @@ from cvxpy.expressions.expression import Expression
 from cvxpy.constraints.constraint import Constraint
 from pyzpc import ZPC, Data, SystemZonotopes
 from utils import generate_trajectories
-from pydatadrivenreachability import Zonotope
+from pyzonotope import Zonotope
 
-# Define the loss function
-def loss_callback(u: cp.Variable, y: cp.Variable) -> Expression:
-    horizon, M, P = u.shape[0], u.shape[1], y.shape[1]
-    ref = np.array([[1,0,0,0]]*horizon)
-
-    # Sum_t ||y_t - r_t||^2
-    cost = 0
-    for i in range(1, horizon):
-        cost += 100*cp.norm(y[i,1] - 1)
-    return  cost
-
-# Define additional constraints
-def constraints_callback(u: cp.Variable, y: cp.Variable) -> List[Constraint]:
-    horizon, M, P = u.shape[0], u.shape[1], y.shape[1]
-    # Define a list of additional input/output constraints
-    return []
 
 
 A = np.array(
@@ -44,9 +28,30 @@ dim_u = 1
 dt = 0.05
 A,B,C,D,_ = scipysig.cont2discrete(system=(A,B,C,D), dt = dt)
 
+uref = np.array([8])
+xref = (np.linalg.inv(np.eye(dim_x) - A) @ B @ uref).flatten()
+
+
+# Define the loss function
+def loss_callback(u: cp.Variable, y: cp.Variable) -> Expression:
+    horizon, M, P = u.shape[0], u.shape[1], y.shape[1]
+    ref = np.array([[1,0,0,0]]*horizon)
+
+    # Sum_t ||y_t - r_t||^2
+    cost = 0
+    for i in range(horizon):
+        cost += 1e3 * cp.norm(y[i,:] - xref, p =2) + 1e-3 * cp.norm(u[i,:] - uref,p=2)
+    return  cost
+
+# Define additional constraints
+def constraints_callback(u: cp.Variable, y: cp.Variable) -> List[Constraint]:
+    horizon, M, P = u.shape[0], u.shape[1], y.shape[1]
+    # Define a list of additional input/output constraints
+    return []
+
 
 # Define zonotopes and generate data
-X0 = Zonotope([0] * dim_x, 1 * np.diag([1] * dim_x))
+X0 = Zonotope([-2, 4, 3, -2.5, 5.5], 1 * np.diag([1] * dim_x))
 U = Zonotope([1] * dim_u,  10 * np.diag([1] * dim_u))
 W = Zonotope([0] * dim_x, 0.005 * np.ones((dim_x, 1)))
 V = Zonotope([0] * dim_x, 0.002 * np.ones((dim_x, 1)))
@@ -56,7 +61,7 @@ zonotopes = SystemZonotopes(X0, U, Y, W, V, AV)
 
 num_trajectories = 5
 num_steps_per_trajectory = 200
-horizon = 3
+horizon = 2
 
 data = generate_trajectories(scipysig.StateSpace(A,B,C,D), X0, U, W, V, num_trajectories, num_steps_per_trajectory)
 
@@ -79,6 +84,7 @@ for n in range(100):
     trajectory.append(x)
 
 trajectory = np.array(trajectory)
+
 for i in range(dim_x):
     plt.plot(trajectory[:,i], label=f'x{i}')
 

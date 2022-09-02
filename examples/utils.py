@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.signal import StateSpace
-from pydatadrivenreachability import Zonotope
+from pyzonotope import Zonotope
 from pyzpc import Data
 
 def generate_trajectories(

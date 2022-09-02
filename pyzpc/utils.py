@@ -2,7 +2,7 @@ import numpy as np
 from typing import NamedTuple, Tuple, Optional, List, Union
 from cvxpy import Expression, Variable, Problem, Parameter
 from cvxpy.constraints.constraint import Constraint
-from pydatadrivenreachability import Zonotope
+from pyzonotope import Zonotope
 
 class OptimizationProblemVariables(NamedTuple):
     """
