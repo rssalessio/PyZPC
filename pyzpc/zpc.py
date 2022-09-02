@@ -190,7 +190,8 @@ class ZPC(object):
             variables = OptimizationProblemVariables(y0=y0, u=u, y=y, s=s, beta_u=None),
             constraints = constraints,
             objective_function = problem_loss,
-            problem = problem
+            problem = problem,
+            reachable_set = R
         )
 
         return self.optimization_problem
