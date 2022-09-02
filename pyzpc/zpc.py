@@ -234,7 +234,8 @@ class ZPC(object):
         info = {
             'value': result, 
             'variables': self.optimization_problem.variables,
-            'u_optimal': u_optimal
+            'u_optimal': u_optimal,
+            'reachable_set': self.optimization_problem.reachable_set
             }
 
         return u_optimal, info
