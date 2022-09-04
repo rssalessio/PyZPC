@@ -189,7 +189,7 @@ class ZPC(object):
             raise Exception(f'Error while constructing the DeePC problem. Details: {e}')
 
         self.optimization_problem = OptimizationProblem(
-            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, s=s, beta_u=None),
+            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, s=sl, beta_u=None),
             constraints = constraints,
             objective_function = problem_loss,
             problem = problem,
