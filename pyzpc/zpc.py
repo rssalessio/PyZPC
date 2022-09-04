@@ -124,7 +124,8 @@ class ZPC(object):
         y0 = cp.Parameter(shape=(self.dim_y))
         u = cp.Variable(shape=(horizon, self.dim_u))
         y = cp.Variable(shape=(horizon, self.dim_y))
-        s = cp.Variable(shape=(horizon, self.dim_y))
+        su = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
+        sl = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
 
         
         R = [CVXZonotope(y0, np.zeros((self.dim_y, 1)))]
@@ -156,7 +157,8 @@ class ZPC(object):
             rightR = Rnew.interval.right_limit
 
             constraints.extend([
-                y[i] == Rnew.center + s[i],
+                y[i] + su[i] >= rightR,
+                y[i] - sl[i] <= leftR,
                 rightR <= rightY,
                 leftR >= leftY
             ])
@@ -175,7 +177,7 @@ class ZPC(object):
         if _loss is None or not isinstance(_loss, Expression) or not _loss.is_dcp():
             raise Exception('Loss function is not defined or is not convex!')
 
-        _regularizers = regularizer * cp.norm(s, p=1)
+        _regularizers = regularizer * (cp.norm(su, p=1) + cp.norm(sl, p=1))
         problem_loss = _loss + _regularizers
 
         # Solve problem
