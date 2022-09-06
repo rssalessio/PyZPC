@@ -161,14 +161,14 @@ class ZPC(object):
             new_beta = cp.Variable(shape=(Rnew.num_generators))
             betas.append(new_beta)
             constraints.extend([
-                y[i] + su[i] <= rightY,
-                y[i] - sl[i] >= leftY,
                 y[i] + su[i] >= rightR,
+                su[i] >= rightR - Rnew.center,
                 y[i] - sl[i] <= leftR,
-                #y[i] == Rnew.center + s[i],
+                sl[i] >= Rnew.center - leftR,
                 rightR <= rightY,
                 leftR >= leftY
             ])
+
 
         _constraints = build_constraints(u, y) if build_constraints is not None else (None, None)
 
@@ -184,7 +184,7 @@ class ZPC(object):
         if _loss is None or not isinstance(_loss, Expression) or not _loss.is_dcp():
             raise Exception('Loss function is not defined or is not convex!')
 
-        _regularizers =    0.01* (cp.norm(su, p=1) + cp.norm(sl, p=1))
+        _regularizers =  1*(cp.norm(su, p=1) + cp.norm(sl, p=1))
         problem_loss = _loss + _regularizers
 
         # Solve problem
@@ -196,7 +196,7 @@ class ZPC(object):
             raise Exception(f'Error while constructing the DeePC problem. Details: {e}')
 
         self.optimization_problem = OptimizationProblem(
-            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, s=su, beta_u=None),
+            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, su=su, sl=sl, beta_u=None),
             constraints = constraints,
             objective_function = problem_loss,
             problem = problem,

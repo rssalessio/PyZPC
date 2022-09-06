@@ -18,7 +18,7 @@ def loss_callback(u: cp.Variable, y: cp.Variable) -> Expression:
 
     # Sum_t ||y_t - r_t||^2
     cost = 0
-    for i in range(1, horizon):
+    for i in range(horizon):
         cost += 100*cp.norm(y[i,0] - 1)
     return  cost
 
@@ -55,7 +55,7 @@ zonotopes = SystemZonotopes(X0, U, Y, W, V, AV)
 
 num_trajectories = 5
 num_steps_per_trajectory = 200
-horizon = 2
+horizon = 1
 
 data = generate_trajectories(sys, X0, U, W, V, num_trajectories, num_steps_per_trajectory)
 
@@ -67,9 +67,10 @@ x = X0.sample().flatten()
 trajectory = [x]
 problem = zpc.build_problem(zonotopes, horizon, loss_callback, constraints_callback)
 for n in range(100):
-    print(f'Solving step {n}')
+    # print(f'Solving step {n}')
 
-    result, info = zpc.solve(x, verbose=True,warm_start=True)
+    result, info = zpc.solve(x, verbose=False,warm_start=True)
+    print(f'[iteration {n}] su: {problem.variables.su.value} - sl: {problem.variables.sl.value}')
     u = info['u_optimal']
     z = sys.A @ x +  np.squeeze(sys.B *u[0]) + W.sample()
 
