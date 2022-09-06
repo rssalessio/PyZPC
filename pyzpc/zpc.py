@@ -124,9 +124,9 @@ class ZPC(object):
         y0 = cp.Parameter(shape=(self.dim_y))
         u = cp.Variable(shape=(horizon, self.dim_u))
         y = cp.Variable(shape=(horizon, self.dim_y))
-        su = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
-        sl = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
-
+        #su = cp.Variable(shape=(horizon, self.dim_y))
+        #sl = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
+        #z = cp.Variable(shape=(horizon), boolean=True)
         
         R = [CVXZonotope(y0, np.zeros((self.dim_y, 1)))]
         U = [CVXZonotope(u[i, :], np.zeros((self.dim_u, 1))) for i in range(horizon)]
@@ -161,10 +161,7 @@ class ZPC(object):
             new_beta = cp.Variable(shape=(Rnew.num_generators))
             betas.append(new_beta)
             constraints.extend([
-                y[i] + su[i] >= rightR,
-                su[i] >= rightR - Rnew.center,
-                y[i] - sl[i] <= leftR,
-                sl[i] >= Rnew.center - leftR,
+                y[i] == Rnew.center,# + su[i],
                 rightR <= rightY,
                 leftR >= leftY
             ])
@@ -184,7 +181,7 @@ class ZPC(object):
         if _loss is None or not isinstance(_loss, Expression) or not _loss.is_dcp():
             raise Exception('Loss function is not defined or is not convex!')
 
-        _regularizers =  1*(cp.norm(su, p=1) + cp.norm(sl, p=1))
+        _regularizers = 0#1e1*(cp.norm(su, p=1) )#+ cp.norm(sl, p=1))
         problem_loss = _loss + _regularizers
 
         # Solve problem
@@ -196,7 +193,7 @@ class ZPC(object):
             raise Exception(f'Error while constructing the DeePC problem. Details: {e}')
 
         self.optimization_problem = OptimizationProblem(
-            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, su=su, sl=sl, beta_u=None),
+            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, su=y, sl=y, beta_u=None),
             constraints = constraints,
             objective_function = problem_loss,
             problem = problem,
