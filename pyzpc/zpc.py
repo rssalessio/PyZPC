@@ -142,6 +142,8 @@ class ZPC(object):
             u >= self.zonotopes.U.interval.left_limit
         ]
 
+        betas = []
+
         Msigma = self.Msigma.reduce(max(1, int(self.Msigma.order * Msigma_regularizer)))
         print(f'Regularized MSigma: old order {self.Msigma.order} - new order {Msigma.order}')
 
@@ -155,10 +157,15 @@ class ZPC(object):
     
             leftR = Rnew.interval.left_limit
             rightR = Rnew.interval.right_limit
-
+            
+            new_beta = cp.Variable(shape=(Rnew.num_generators))
+            betas.append(new_beta)
             constraints.extend([
+                y[i] + su[i] <= rightY,
+                y[i] - sl[i] >= leftY,
                 y[i] + su[i] >= rightR,
                 y[i] - sl[i] <= leftR,
+                #y[i] == Rnew.center + s[i],
                 rightR <= rightY,
                 leftR >= leftY
             ])
@@ -177,7 +184,7 @@ class ZPC(object):
         if _loss is None or not isinstance(_loss, Expression) or not _loss.is_dcp():
             raise Exception('Loss function is not defined or is not convex!')
 
-        _regularizers = regularizer * (cp.norm(su, p=1) + cp.norm(sl, p=1))
+        _regularizers =    0.01* (cp.norm(su, p=1) + cp.norm(sl, p=1))
         problem_loss = _loss + _regularizers
 
         # Solve problem
@@ -189,7 +196,7 @@ class ZPC(object):
             raise Exception(f'Error while constructing the DeePC problem. Details: {e}')
 
         self.optimization_problem = OptimizationProblem(
-            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, s=sl, beta_u=None),
+            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, s=su, beta_u=None),
             constraints = constraints,
             objective_function = problem_loss,
             problem = problem,

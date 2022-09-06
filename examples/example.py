@@ -55,7 +55,7 @@ zonotopes = SystemZonotopes(X0, U, Y, W, V, AV)
 
 num_trajectories = 5
 num_steps_per_trajectory = 200
-horizon = 3
+horizon = 2
 
 data = generate_trajectories(sys, X0, U, W, V, num_trajectories, num_steps_per_trajectory)
 
