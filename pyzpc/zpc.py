@@ -124,9 +124,8 @@ class ZPC(object):
         y0 = cp.Parameter(shape=(self.dim_y))
         u = cp.Variable(shape=(horizon, self.dim_u))
         y = cp.Variable(shape=(horizon, self.dim_y))
-        #su = cp.Variable(shape=(horizon, self.dim_y))
-        #sl = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
-        #z = cp.Variable(shape=(horizon), boolean=True)
+        su = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
+        sl = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
         
         R = [CVXZonotope(y0, np.zeros((self.dim_y, 1)))]
         U = [CVXZonotope(u[i, :], np.zeros((self.dim_u, 1))) for i in range(horizon)]
@@ -162,8 +161,8 @@ class ZPC(object):
             betas.append(new_beta)
             constraints.extend([
                 y[i] == Rnew.center,# + su[i],
-                rightR <= rightY,
-                leftR >= leftY
+                rightR + su[i] <= rightY,
+                leftR -sl[i] >= leftY
             ])
 
 
@@ -193,7 +192,7 @@ class ZPC(object):
             raise Exception(f'Error while constructing the DeePC problem. Details: {e}')
 
         self.optimization_problem = OptimizationProblem(
-            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, su=y, sl=y, beta_u=None),
+            variables = OptimizationProblemVariables(y0=y0, u=u, y=y, su=su, sl=sl, beta_u=None),
             constraints = constraints,
             objective_function = problem_loss,
             problem = problem,

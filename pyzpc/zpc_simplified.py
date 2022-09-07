@@ -96,8 +96,8 @@ class ZPC(object):
             zonotopes: SystemZonotopes,
             horizon: int,
             build_loss: Callable[[cp.Variable, cp.Variable], Expression],
-            build_constraints: Optional[Callable[[cp.Variable, cp.Variable], Optional[List[Constraint]]]] = None,
-            regularizer: float = 1e-1) -> OptimizationProblem:
+            build_constraints: Optional[Callable[[cp.Variable, cp.Variable], Optional[List[Constraint]]]] = None
+            ) -> OptimizationProblem:
         """
         Builds the ZPC optimization problem
         For more info check section 3.2 in https://arxiv.org/pdf/2103.14110.pdf
@@ -123,7 +123,8 @@ class ZPC(object):
         y0 = cp.Parameter(shape=(self.dim_y))
         u = cp.Variable(shape=(horizon, self.dim_u))
         y = cp.Variable(shape=(horizon, self.dim_y))
-        s = cp.Variable(shape=(horizon, self.dim_y))
+        su = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
+        sl = cp.Variable(shape=(horizon, self.dim_y), nonneg=True)
         beta_u = cp.Variable(shape=(horizon, self.zonotopes.U.num_generators))
 
         
@@ -145,7 +146,7 @@ class ZPC(object):
         for i in range(horizon):
             print(f'Building for step {i}')
             XU = R[i].cartesian_product(U[i])
-            Rnew: CVXZonotope = (self.Msigma * XU) + Z
+            Rnew: CVXZonotope = (XU * self.Msigma.center) + Z
 
             R.append(Rnew)
     
@@ -153,9 +154,9 @@ class ZPC(object):
             rightR = Rnew.interval.right_limit
 
             constraints.extend([
-                y[i] == Rnew.center + s[i],
-                rightR <= rightY,
-                leftR >= leftY
+                y[i] == Rnew.center,
+                rightR + su[i] <= rightY,
+                leftR -sl[i] >= leftY
             ])
 
         _constraints = build_constraints(u, y) if build_constraints is not None else (None, None)
@@ -172,8 +173,7 @@ class ZPC(object):
         if _loss is None or not isinstance(_loss, Expression) or not _loss.is_dcp():
             raise Exception('Loss function is not defined or is not convex!')
 
-        _regularizers = regularizer * cp.sum(cp.abs(s))
-        problem_loss = _loss + _regularizers
+        problem_loss = _loss
 
         # Solve problem
         objective = cp.Minimize(problem_loss)
