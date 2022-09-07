@@ -97,7 +97,6 @@ class ZPC(object):
             horizon: int,
             build_loss: Callable[[cp.Variable, cp.Variable], Expression],
             build_constraints: Optional[Callable[[cp.Variable, cp.Variable], Optional[List[Constraint]]]] = None,
-            regularizer: float = 1e-1,
             Msigma_regularizer: float = 0.1) -> OptimizationProblem:
         """
         Builds the ZPC optimization problem
